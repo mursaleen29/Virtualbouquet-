@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive 3D Bouquet</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: #050505;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            cursor: pointer; /* Shows the user it's interactive */
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="bouquetCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('bouquetCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Global state to track if the user touched/clicked to open it
+        let isTriggered = false;
+
+        function resizeCanvas() {
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = window.innerWidth * dpr;
+            canvas.height = window.innerHeight * dpr;
+            ctx.scale(dpr, dpr);
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        const getBaseX = () => window.innerWidth / 2;
+        const getBaseY = () => window.innerHeight - 150; 
+
+        // High-Fidelity Botanical Real-world Palette 
+        const flowerTypes = [
+            { baseColor: '#800020', tipColor: '#d90429', coreColor: '#ffd166', petals: 8, layers: 5, type: 'rose' },       
+            { baseColor: '#c97a7e', tipColor: '#ffb3c1', coreColor: '#ffb703', petals: 12, layers: 4, type: 'peony' },    
+            { baseColor: '#e0533c', tipColor: '#ff826e', coreColor: '#ffe3a8', petals: 6, layers: 4, type: 'poppy' },     
+            { baseColor: '#f4e3b1', tipColor: '#fffdf6', coreColor: '#e29578', petals: 10, layers: 4, type: 'carnation' },
+            { baseColor: '#df7a32', tipColor: '#f4a261', coreColor: '#264653', petals: 7, layers: 4, type: 'apricot' }    
+        ];
+
+        const flowersConfig = [];
+        const totalFlowers = 35; 
+
+        for (let i = 0; i < totalFlowers; i++) {
+            const angle = (-Math.PI / 4) - (Math.random() * (Math.PI / 2)); 
+            const spreadFactor = Math.pow(Math.random(), 1.5); 
+            const radius = 90 + spreadFactor * 140; 
+            
+            const targetX = Math.cos(angle) * radius * 1.2; 
+            const targetY = Math.sin(angle) * radius * 0.9 - 50; 
+
+            const cp1x = targetX * 0.3 + (Math.random() - 0.5) * 80;
+            const cp1y = -40 - Math.random() * 70;
+            const cp2x = targetX * 0.7 + (Math.random() - 0.5) * 100;
+            const cp2y = targetY * 0.5 - Math.random() * 70;
+
+            const type = flowerTypes[i % flowerTypes.length];
+
+            const leafPositions = [0.4, 0.65].map(p => ({
+                t: p + (Math.random() * 0.05 - 0.025),
+                side: Math.random() > 0.5 ? 1 : -1,
+                size: 11 + Math.random() * 7
+            }));
+
+            flowersConfig.push({
+                tX: targetX,
+                tY: targetY,
+                cp1x: cp1x, cp1y: cp1y,
+                cp2x: cp2x, cp2y: cp2y,
+                color: type.baseColor,
+                tipColor: type.tipColor,
+                coreColor: type.coreColor,
+                petals: type.petals,
+                layers: type.layers,
+                fType: type.type,
+                size: 20 + Math.random() * 10,
+                leaves: leafPositions,
+                delay: i * 9 
+            });
+        }
+
+        flowersConfig.sort((a, b) => a.tY - b.tY);
+
+        class OrganicFlower {
+            constructor(config) {
+                this.config = config;
+                this.progress = 0;
+                this.bloomProgress = 0;
+                this.frameDelay = config.delay;
+            }
+
+            update() {
+                if (!isTriggered) return; // Keep animation frozen until screen interaction
+                
+                if (this.frameDelay > 0) {
+                    this.frameDelay--;
+                    return;
+                }
+                if (this.progress < 1) {
+                    this.progress += 0.014; 
+                    if (this.progress > 1) this.progress = 1;
+                } else if (this.bloomProgress < 1) {
+                    this.bloomProgress += 0.022;
+                    if (this.bloomProgress > 1) this.bloomProgress = 1;
+                }
+            }
+
+            getBezierPoint(t, bx, by, c1x, c1y, c2x, c2y, tx, ty) {
+                const x = (1-t)**3 * bx + 3*(1-t)**2 * t * c1x + 3*(1-t) * t**2 * c2x + t**3 * tx;
+                const y = (1-t)**3 * by + 3*(1-t)**2 * t * c1y + 3*(1-t) * t**2 * c2y + t**3 * ty;
+                const dx = 3*(1-t)**2*(c1x-bx) + 6*(1-t)*t*(c2x-c1x) + 3*t**2*(tx-c2x);
+                const dy = 3*(1-t)**2*(c1y-by) + 6*(1-t)*t*(c2y-c1y) + 3*t**2*(ty-c2y);
+                return { x, y, angle: Math.atan2(dy, dx) };
+            }
+
+            draw() {
+                if (this.frameDelay > 0 || !isTriggered) return;
+
+                const bx = getBaseX();
+                const by = getBaseY() + 40; // Shifted deeper into the pocket structure
+                const tx = bx + this.config.tX;
+                const ty = by + this.config.tY;
+                const c1x = bx + this.config.cp1x;
+                const c1y = by + this.config.cp1y;
+                const c2x = bx + this.config.cp2x;
+                const c2y = by + this.config.cp2y;
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(bx, by);
+
+                const t = this.progress;
+                for(let j = 0; j <= t * 100; j++) {
+                    const pt = this.getBezierPoint(j/100, bx, by, c1x, c1y, c2x, c2y, tx, ty);
+                    ctx.lineTo(pt.x, pt.y);
+                }
+
+                ctx.strokeStyle = '#132c15';
+                ctx.lineWidth = 3.0;
+                ctx.stroke();
+                ctx.strokeStyle = '#1b3f1e';
+                ctx.lineWidth = 0.8;
+                ctx.stroke();
+                ctx.restore();
+
+                this.config.leaves.forEach(leaf => {
+                    if (t >= leaf.t) {
+                        const leafScale = Math.min(1, (t - leaf.t) * 4);
+                        const pt = this.getBezierPoint(leaf.t, bx, by, c1x, c1y, c2x, c2y, tx, ty);
+                        this.draw3DLeaf(pt.x, pt.y, pt.angle, leaf.side, leaf.size * leafScale);
+                    }
+                });
+
+                if (this.progress >= 1 && this.bloomProgress > 0) {
+                    this.draw3DFlower(tx, ty, this.bloomProgress * this.config.size);
+                }
+            }
+
+            draw3DLeaf(x, y, stemAngle, side, size) {
+                if (size <= 0) return;
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.rotate(stemAngle + (Math.PI / 2 * side));
+
+                const leafGrad = ctx.createRadialGradient(0, 0, size*0.1, size*0.5, -size*0.5, size);
+                leafGrad.addColorStop(0, '#24533a');
+                leafGrad.addColorStop(0.7, '#143624');
+                leafGrad.addColorStop(1, '#05140b');
+                ctx.fillStyle = leafGrad;
+
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.quadraticCurveTo(-size * 0.35, -size * 0.3, -size * 0.15, -size);
+                ctx.quadraticCurveTo(0, -size * 1.05, size * 0.15, -size);
+                ctx.quadraticCurveTo(size * 0.35, -size * 0.3, 0, 0);
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(0, -size);
+                ctx.strokeStyle = '#327451';
+                ctx.lineWidth = 0.6;
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            draw3DFlower(x, y, currentSize) {
+                ctx.save();
+                ctx.translate(x, y);
+
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+                ctx.shadowBlur = 12;
+                ctx.shadowOffsetY = 6;
+                ctx.shadowOffsetX = 2;
+
+                const pCount = this.config.petals;
+
+                for (let layer = 0; layer < this.config.layers; layer++) {
+                    const layerScale = 1 - (layer * 0.20);
+                    const layerSize = currentSize * layerScale;
+                    
+                    ctx.save();
+                    ctx.rotate(layer * 0.5);
+
+                    for (let i = 0; i < pCount; i++) {
+                        ctx.save();
+                        ctx.rotate((Math.PI * 2 / pCount) * i);
+
+                        const grad = ctx.createRadialGradient(0, 0, layerSize * 0.1, 0, -layerSize * 0.6, layerSize);
+                        grad.addColorStop(0, this.config.color);
+                        grad.addColorStop(0.6, this.config.tipColor);
+                        grad.addColorStop(1, this.config.color);
+                        ctx.fillStyle = grad;
+
+                        ctx.beginPath();
+                        if (this.config.fType === 'rose' || this.config.fType === 'peony') {
+                            ctx.moveTo(0, 0);
+                            ctx.bezierCurveTo(-layerSize * 0.9, -layerSize * 0.4, -layerSize * 0.4, -layerSize * 1.2, 0, -layerSize);
+                            ctx.bezierCurveTo(layerSize * 0.4, -layerSize * 1.2, layerSize * 0.9, -layerSize * 0.4, 0, 0);
+                        } else { 
+                            ctx.moveTo(0, 0);
+                            ctx.quadraticCurveTo(-layerSize * 0.3, -layerSize * 0.3, -layerSize * 0.15, -layerSize);
+                            ctx.quadraticCurveTo(0, -layerSize * 1.05, layerSize * 0.15, -layerSize);
+                            ctx.quadraticCurveTo(layerSize * 0.3, -layerSize * 0.3, 0, 0);
+                        }
+                        ctx.fill();
+                        ctx.restore();
+                    }
+                    ctx.restore();
+                }
+
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetY = 0;
+                ctx.shadowOffsetX = 0;
+                ctx.beginPath();
+                ctx.arc(0, 0, currentSize * 0.13, 0, Math.PI * 2);
+                const centerGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, currentSize * 0.13);
+                centerGrad.addColorStop(0, '#ffffff');
+                centerGrad.addColorStop(0.4, this.config.coreColor);
+                centerGrad.addColorStop(1, '#111111');
+                ctx.fillStyle = centerGrad;
+                ctx.fill();
+
+                ctx.restore();
+            }
+        }
+
+        const items = flowersConfig.map(cfg => new OrganicFlower(cfg));
+
+        // Global Gradient styling variables shared across paper layers for consistency
+        function getPaperGradient() {
+            const bx = getBaseX();
+            const by = getBaseY();
+            const grad = ctx.createLinearGradient(bx - 100, by, bx + 100, by + 180);
+            grad.addColorStop(0, '#ebdccb');
+            grad.addColorStop(0.4, '#dfcdb7');
+            grad.addColorStop(0.8, '#c3b091');
+            grad.addColorStop(1, '#9e8b6b');
+            return grad;
+        }
+
+        // LAYER 1: Background paper backwall panel
+        function drawPaperBack() {
+            const bx = getBaseX();
+            const by = getBaseY();
+
+            ctx.save();
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 15;
+            ctx.shadowOffsetY = 8;
+
+            ctx.fillStyle = getPaperGradient();
+            ctx.beginPath();
+            ctx.moveTo(bx - 95, by - 40);
+            ctx.lineTo(bx + 95, by - 40);
+            ctx.lineTo(bx + 50, by + 180);
+            ctx.lineTo(bx - 50, by + 180);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // LAYER 3: Foreground wraps on top of growing stems
+        function drawPaperFront() {
+            const bx = getBaseX();
+            const by = getBaseY();
+
+            ctx.save();
+            ctx.fillStyle = getPaperGradient();
+
+            // Left Overlapping Crease Wrap
+            ctx.beginPath();
+            ctx.moveTo(bx - 95, by - 40);
+            ctx.lineTo(bx + 15, by + 10);
+            ctx.lineTo(bx - 50, by + 180);
+            ctx.closePath();
+            ctx.fill();
+
+            // Right Overlapping Crease Wrap
+            ctx.beginPath();
+            ctx.moveTo(bx + 95, by - 40);
+            ctx.lineTo(bx - 15, by + 20);
+            ctx.lineTo(bx + 50, by + 180);
+            ctx.closePath();
+            ctx.fill();
+
+            // 3D Shadow Line Crease Separation Effect
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.moveTo(bx - 15, by + 20);
+            ctx.lineTo(bx + 50, by + 180);
+            ctx.stroke();
+
+            // Render Silk Ribbon Bow Ties on foreground layer
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+            ctx.shadowBlur = 6;
+            ctx.shadowOffsetY = 4;
+            const ribbonGrad = ctx.createLinearGradient(bx - 30, by + 60, bx + 30, by + 80);
+            ribbonGrad.addColorStop(0, '#d90429');
+            ribbonGrad.addColorStop(0.5, '#ef233c');
+            ribbonGrad.addColorStop(1, '#b7031e');
+            ctx.fillStyle = ribbonGrad;
+
+            // Bow Loops
+            ctx.beginPath();
+            ctx.bezierCurveTo(bx, by + 70, bx - 45, by + 45, bx - 45, by + 75);
+            ctx.bezierCurveTo(bx - 45, by + 95, bx, by + 70, bx, by + 70);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.bezierCurveTo(bx, by + 70, bx + 45, by + 45, bx + 45, by + 75);
+            ctx.bezierCurveTo(bx + 45, by + 95, bx, by + 70, bx, by + 70);
+            ctx.fill();
+
+            // Center Knot
+            ctx.beginPath();
+            ctx.roundRect(bx - 10, by + 64, 20, 14, 4);
+            ctx.fillStyle = '#b7031e';
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        // Action Trigger Event Handlers (Supports desktop clicks and mobile touches)
+        function triggerBouquet() {
+            isTriggered = true;
+        }
+        window.addEventListener('click', triggerBouquet);
+        window.addEventListener('touchstart', triggerBouquet);
+
+        function animate() {
+            ctx.fillStyle = '#050505';
+            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+            // 1. Draw Back Background Wrapper Panel
+            drawPaperBack();
+
+            // 2. Draw Growing Items (Rendered between back wall and front flaps)
+            items.forEach(item => {
+                item.update();
+                item.draw();
+            });
+
+            // 3. Draw Foreground Paper Envelope & Tied Silk Ribbon
+            drawPaperFront();
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
